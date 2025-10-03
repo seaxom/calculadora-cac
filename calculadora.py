@@ -2,11 +2,15 @@ import math
 import streamlit as st
 import pandas as pd
 import json
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # =========================
 # Configuración de página
 # =========================
-st.set_page_config(page_title="CAC Dashboard - Bebbia", layout="wide")
+st.set_page_config(page_title="CAC Dashboard", layout="wide")
 st.title("Calculadora Dinámica de CAC & Pricing")
 
 # ============ Manejo de carga JSON ============
@@ -233,3 +237,64 @@ if debug_mode:
         })
     df_debug = pd.DataFrame(debug_rows)
     st.dataframe(df_debug)
+
+# =========================
+# Gemini API integration
+# =========================
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+if "gemini_insight" not in st.session_state:
+    st.session_state["gemini_insight"] = None
+if "gemini_chat" not in st.session_state:
+    st.session_state["gemini_chat"] = []
+
+if st.button("Generar insight con Inteligencia Artificial"):
+    try:
+        # Collect parameters from session_state
+        params = {k: st.session_state.get(k) for k in st.session_state.keys()}
+        roi_text = f"{roi*100:.1f}%" if roi is not None else "N/A"
+        roi_desc_text = f"{roi_desc*100:.1f}%" if roi_desc is not None else "N/A"
+        # Build prompt with key metrics
+        prompt = f"""
+Eres un asistente experto en análisis financiero y marketing. Aquí están los parámetros y resultados clave de un análisis CAC:
+
+Parámetros:
+{json.dumps(params, indent=4)}
+
+Resultados clave:
+- CAC: ${CAC:,.2f}
+- Ingreso acumulado esperado: ${ingresos_acum:,.2f}
+- Break-even en mes: {break_even_mes if break_even_mes else 'No se recupera'}
+- ROI sin descuento: {roi_text}
+- ROI con descuento (NPV): {roi_desc_text}
+
+Por favor, genera un insight útil y conciso sobre estos resultados para ayudar a la toma de decisiones.
+"""
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        st.session_state["gemini_insight"] = response.text
+        st.session_state["gemini_chat"] = []
+    except Exception as e:
+        st.error(f"Error al generar insight con Gemini: {e}")
+
+if st.session_state["gemini_insight"] is not None:
+    st.subheader("Insight interactivo")
+    st.markdown(st.session_state["gemini_insight"])
+
+    # Display chat history
+    for chat in st.session_state["gemini_chat"]:
+        st.markdown(f"**Pregunta:** {chat['Q']}")
+        st.markdown(f"**Respuesta:** {chat['A']}")
+
+    followup = st.text_input("Escribe una pregunta o inquietud adicional sobre el análisis:", key="followup_input")
+
+    if st.button("Enviar pregunta a la IA"):
+        if followup.strip():
+            try:
+                model = genai.GenerativeModel("gemini-2.0-flash")
+                followup_prompt = f"El usuario quiere profundizar en el análisis anterior con esta pregunta: {followup}\n\nConsidera los parámetros y resultados anteriores para responder."
+                response_followup = model.generate_content(followup_prompt)
+                st.session_state["gemini_chat"].append({"Q": followup, "A": response_followup.text})
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al generar respuesta de seguimiento con Gemini: {e}")
