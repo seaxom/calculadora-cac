@@ -5,7 +5,3 @@ __pycache__/
 .env
 .venv
 *.DS_Storegit add .
-
-
-# .gitignore
-.env
